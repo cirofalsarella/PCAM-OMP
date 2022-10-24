@@ -120,7 +120,6 @@ double desvioPadrao(int A_alunos, int l_linhas, int inicio, double media, int** 
 }
 
 reg_t *extrairRegs(int R_regioes, int C_cidades, int A_alunos, int** notas) {
-
     reg_t *res = (reg_t*) malloc((R_regioes+1)*sizeof(reg_t));
 
     int totSum = 0;
@@ -131,6 +130,7 @@ reg_t *extrairRegs(int R_regioes, int C_cidades, int A_alunos, int** notas) {
     res[R_regioes].mediana = (double*) malloc (sizeof(double));
     res[R_regioes].media = (double*) malloc (3*sizeof(double));   
     // media[1] --> melhor região;      media[2] --> melhor cidade;
+    
     res[R_regioes].desvioPadrao = (double*) malloc (sizeof(double));
 
     for (int r=0; r<R_regioes; r++) {
@@ -142,8 +142,16 @@ reg_t *extrairRegs(int R_regioes, int C_cidades, int A_alunos, int** notas) {
         res[r].desvioPadrao = (double*) malloc ((C_cidades+1)*sizeof(double));
     
         for (int c=0; c<C_cidades; c++) {
+            // Ordenar os alunos 
             int linha = r*C_cidades + c;
             quick_sort(notas[linha], 0, A_alunos-1);
+
+            // Mediana (maior e menor implicitos)
+            res[r].mediana[c] = notas[linha][A_alunos/2];
+            if (A_alunos/2 % 2 == 1) {
+                res[r].mediana[c] += notas[linha][A_alunos/2 - 1];
+                res[r].mediana[c] /= 2.0;
+            }
 
             int cSum = 0;
             for (int a=0; a<A_alunos; a++)  cSum += notas[linha][a];
@@ -152,12 +160,6 @@ reg_t *extrairRegs(int R_regioes, int C_cidades, int A_alunos, int** notas) {
             res[r].media[c] = cSum*1.0/A_alunos;
             if (res[r].media[c] > res[melhorCid / C_cidades].media[melhorCid % C_cidades])  melhorCid = linha;
 
-            res[r].mediana[c] = notas[linha][A_alunos/2];
-            if (A_alunos/2 % 2 == 1) {
-                res[r].mediana[c] += notas[linha][A_alunos/2 - 1];
-                res[r].mediana[c] /= 2.0;
-            }
-            
             res[r].desvioPadrao[c] = desvioPadrao(A_alunos, 1, r*C_cidades + c, res[r].media[c], notas);
 
             if (notas[linha][0] < notas[res[r].minPos][0])                      res[r].minPos = linha;
