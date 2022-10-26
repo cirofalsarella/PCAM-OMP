@@ -1,22 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <time.h>
+#include <omp.h>
 
 typedef struct {
-    int minPos;
-    int maxPos;
-    double* mediana;
-    double* media;
-    double* desvioPadrao;
-} reg_t;
+    int min;
+    int max;
+    double mediana;
+    double media;
+    double desvioPadrao;
+} data_t;
 
-
-/* Matriz [OK]
- - cada célula é uma nota
- - cada linha é uma cidade
- - regiões são grupos de linhas
-*/
 
 int **geraNotas(int R_regioes, int C_cidades, int A_alunos, int SEED){
     srand(SEED);
@@ -32,184 +26,12 @@ int **geraNotas(int R_regioes, int C_cidades, int A_alunos, int SEED){
     return notas;
 }
 
-void liberaNotas(int R_regioes, int C_cidades, int** notas) {
-    int n_linhas = R_regioes * C_cidades;
-    for (int i=0; i<n_linhas; i++) {
-        free(notas[i]);
-    }
-    free(notas);
-
-    return;
-}
-
-
-
-/* Extrair
- (por [OK]cidade/  [OK]região/ [OK]Brasil)
- - [OK] menor
- - [OK] maior nota
- - [OK] mediana
- - [OK] média aritmética simples
- - [TODO] desvio padrão
-*/
-
-void quick_sort(int *notas, int left, int right) {
-    int i, j, m;
-     
-    i = left;
-    j = right;
-    m = notas[(left + right) / 2];
-     
-    while (i <= j) {
-        while (notas[i] < m && i < right)    i++;
-        while (notas[j] > m && j > left)     j--;
-
-        if (i <= j) {
-            int aux = notas[i];
-            notas[i] = notas[j];
-            notas[j] = aux;
-            i++;
-            j--;
-        }
-    }
-     
-    if (j > left)    quick_sort(notas, left, j);
-    if (i < right)   quick_sort(notas, i, right);
-}
-
-double notaMediana(int inicio, int qtde, int C_cidades, int A_alunos, int** notas) {
-    int *ct = (int*) calloc (C_cidades, sizeof(int));
-    int vetAnt = 0;
-    int vetMin = 0;
-
-    for (int i=0; i<=qtde/2; i++) {
-        vetAnt = vetMin;
-        int valMin = 101;
-        for (int j=0; j<C_cidades; j++) {
-            if (ct[j] >= A_alunos)  continue;
-            if (notas[inicio + j][ct[j]] < valMin){
-                vetMin = j;
-                valMin = notas[inicio+j][ct[j]];
-            }
-        }
-        ct[vetMin]++;
-    }
-
-    ct[vetMin]--;
-    double mediana = notas[inicio+vetMin][ct[vetMin]];
-    
-    if (qtde%2 == 0) {
-        ct[vetAnt]--;
-        mediana += notas[inicio+vetAnt][ct[vetAnt]];
-        mediana /= 2.0;
-    }
-
-    free(ct);
-    return mediana;
-}
-
-double desvioPadrao(int A_alunos, int l_linhas, int inicio, double media, int** notas) {
-    double soma = 0.0;
-    for (int l=0; l<l_linhas; l++) {
-        for (int a=0; a<A_alunos; a++) {
-            soma += pow((notas[l+inicio][a] - media), 2);
-        }
-    }
-    double raiz = sqrt(soma/(A_alunos*l_linhas));
-    return raiz;
-}
-
-reg_t *extrairRegs(int R_regioes, int C_cidades, int A_alunos, int** notas) {
-    reg_t *res = (reg_t*) malloc((R_regioes+1)*sizeof(reg_t));
-
-    int totSum = 0;
-    int melhorReg = 0;
-    int melhorCid = 0;
-    res[R_regioes].minPos = 0;
-    res[R_regioes].maxPos = 0;
-    res[R_regioes].mediana = (double*) malloc (sizeof(double));
-    res[R_regioes].media = (double*) malloc (3*sizeof(double));   
-    // media[1] --> melhor região;      media[2] --> melhor cidade;
-    
-    res[R_regioes].desvioPadrao = (double*) malloc (sizeof(double));
-
-    for (int r=0; r<R_regioes; r++) {
-        int rSum = 0;
-        res[r].minPos = r*C_cidades;
-        res[r].maxPos = r*C_cidades;
-        res[r].mediana = (double*) malloc ((C_cidades+1)*sizeof(double));    
-        res[r].media = (double*) malloc ((C_cidades+1)*sizeof(double));    
-        res[r].desvioPadrao = (double*) malloc ((C_cidades+1)*sizeof(double));
-    
-        for (int c=0; c<C_cidades; c++) {
-            // Ordenar os alunos 
-            int linha = r*C_cidades + c;
-            quick_sort(notas[linha], 0, A_alunos-1);
-
-            // Mediana (maior e menor implicitos)
-            res[r].mediana[c] = notas[linha][A_alunos/2];
-            if (A_alunos/2 % 2 == 1) {
-                res[r].mediana[c] += notas[linha][A_alunos/2 - 1];
-                res[r].mediana[c] /= 2.0;
-            }
-
-            int cSum = 0;
-            for (int a=0; a<A_alunos; a++)  cSum += notas[linha][a];
-            rSum += cSum;
-
-            res[r].media[c] = cSum*1.0/A_alunos;
-            if (res[r].media[c] > res[melhorCid / C_cidades].media[melhorCid % C_cidades])  melhorCid = linha;
-
-            res[r].desvioPadrao[c] = desvioPadrao(A_alunos, 1, r*C_cidades + c, res[r].media[c], notas);
-
-            if (notas[linha][0] < notas[res[r].minPos][0])                      res[r].minPos = linha;
-            if (notas[linha][A_alunos-1] > notas[res[r].maxPos][A_alunos-1])    res[r].maxPos = linha;
-        }
-
-        res[r].media[C_cidades] = rSum*1.0 / (A_alunos * C_cidades);
-        if (res[r].media[C_cidades] > res[melhorReg].media[C_cidades])  melhorReg = r;
-
-        res[r].mediana[C_cidades] = notaMediana(r * C_cidades, C_cidades * A_alunos, C_cidades, A_alunos, notas);
-        
-        res[r].desvioPadrao[C_cidades] = desvioPadrao(A_alunos, C_cidades, r*C_cidades, res[r].media[C_cidades], notas);
-
-        totSum += rSum;
-        if (notas[res[r].minPos][0] < notas[res[R_regioes].minPos][0])                      res[R_regioes].minPos = res[r].minPos;
-        if (notas[res[r].maxPos][A_alunos-1] > notas[res[R_regioes].maxPos][A_alunos-1])    res[R_regioes].maxPos = res[r].maxPos;
-    }
-
-    res[R_regioes].mediana[0] = notaMediana(0, R_regioes * C_cidades * A_alunos, R_regioes * C_cidades, A_alunos, notas);
-    res[R_regioes].media[0] = (1.0*totSum) / (A_alunos * C_cidades * R_regioes);
-    res[R_regioes].desvioPadrao[0] = desvioPadrao(A_alunos, C_cidades*R_regioes, 0, res[R_regioes].media[0], notas);
-    res[R_regioes].media[1] = melhorReg;
-    res[R_regioes].media[2] = melhorCid;
-
-    return res;
-}
-
-void liberaRegs(reg_t *reg, int size) {
-    for (int i=0; i<size; i++) {
-        free(reg[i].media);
-        free(reg[i].mediana);
-        free(reg[i].desvioPadrao);
-    }
-    free(reg);
-}
-
-
-
-/* Imprimir [OK]
- - [OK] regiões e suas cidades ordenadas pelos números das mesmas
- - [OK] região e então a cidade Brasileira com as melhores médias das notas
-*/
-
-void printRegs(reg_t *reg, double tempo, int R_regioes, int C_cidades, int A_alunos, int **notas) {
+void printRegs(data_t **cidades, data_t *regioes, data_t brasil, int* melhores, double tempo, int R_regioes, int C_cidades) {
     for (int r=0; r<R_regioes; r++) {
         for (int c=0; c<C_cidades; c++) {
-            int linha = r * C_cidades + c;
             printf("Reg %d - Cid %d: ", r, c);
-            printf("menor: %d, maior: %d, ", notas[linha][0], notas[linha][A_alunos-1]);
-            printf("mediana %.2f, media %.2f e DP %.2f", reg[r].mediana[c], reg[r].media[c], reg[r].desvioPadrao[c]);
+            printf("menor: %d, maior: %d, ", cidades[r][c].min, cidades[r][c].max);
+            printf("mediana %.2f, media %.2f e DP %.2f", cidades[r][c].mediana, cidades[r][c].media, cidades[r][c].desvioPadrao);
             printf("\n");
         }
         printf("\n\n");
@@ -217,33 +39,159 @@ void printRegs(reg_t *reg, double tempo, int R_regioes, int C_cidades, int A_alu
 
     for (int r=0; r<R_regioes; r++) {
         printf("Reg %d: ", r);
-        printf("menor: %d, maior: %d, ", notas[reg[r].minPos][0], notas[reg[r].maxPos][A_alunos-1]);
-        printf("mediana %.2f, media %.2f e DP %.2f", reg[r].mediana[R_regioes], reg[r].media[R_regioes], reg[r].desvioPadrao[R_regioes]);
+        printf("menor: %d, maior: %d, ", regioes[r].min, regioes[r].max);
+        printf("mediana %.2f, media %.2f e DP %.2f", regioes[r].mediana, regioes[r].media, regioes[r].desvioPadrao);
         printf("\n");
     }
     printf("\n\n");
 
     printf("Brasil: ");
-    printf("menor: %d, maior: %d, ", notas[reg[R_regioes].minPos][0], notas[reg[R_regioes].maxPos][A_alunos-1]);
-    printf("mediana %.2f, media %.2f e DP %.2f", reg[R_regioes].mediana[0], reg[R_regioes].media[0], reg[R_regioes].desvioPadrao[0]);
+    printf("menor: %d, maior: %d, ", brasil.min, brasil.max);
+    printf("mediana %.2f, media %.2f e DP %.2f", brasil.mediana, brasil.media, brasil.desvioPadrao);
     printf("\n");
     printf("\n\n");
 
-    printf("Melhor região: Região %.0f\n", reg[R_regioes].media[1]); 
-    printf("Melhor cidade: Região %.0f, Cidade %ld\n", reg[R_regioes].media[2] / C_cidades, lrint(reg[R_regioes].media[2]) % C_cidades);
+    printf("Melhor região: Região %d\n", melhores[2]); 
+    printf("Melhor cidade: Região %d, Cidade %d\n", melhores[0], melhores[1]);
     printf("\n\n");
 
-    printf("Tempo de resposta sem considerar E/S, em segundos %.3f\n", tempo);
+    printf("Tempo de resposta sem considerar E/S, em segundos %.5f\n", tempo);
 }
 
 
 
-/* Entrada
- - R regiões
- - C cidades (por região)
- - A alunos (por cidade)
- - Seed
-*/
+int *pegaFrequencia(int* notas, int A_alunos) {
+    int *frequencias = (int*) calloc (101, sizeof(int));
+    for (int i=0; i<A_alunos; i++)  frequencias[notas[i]]++;
+    return frequencias;
+}
+
+int *acumulaFrequencia(int **frequencias, int n_frequencias) {
+    int *frequenciaAcumulada = (int*) calloc (101, sizeof(int));
+
+    for (int f=0; f<n_frequencias; f++) {
+        for (int i=0; i<101; i++)
+            frequenciaAcumulada[i] += frequencias[f][i];
+    }
+
+    return frequenciaAcumulada;
+}
+
+
+
+int pegaMax(int *frequencias) {
+    for (int i=100; i>0; i--)   if (frequencias[i]) return i;
+    return 0;
+}
+
+int pegaMin(int *frequencias) {
+    for (int i=0; i<100; i++)   if (frequencias[i]) return i;
+    return 100;
+}
+
+int pegaMediana(int *frequencias, int a_alunos) {
+    int i = 0;
+    int soma = 0;
+    while (soma < (a_alunos/2)) {
+        soma += frequencias[i];
+        i++;
+    }
+    int mediana = i-1;
+
+    if (a_alunos % 2 == 0) {
+        int j = i;
+        while (!frequencias[j] && j++);
+        mediana = (i + j)/2.0;
+    }
+
+    return mediana;
+}
+
+double pegaMedia(int *frequencias, int a_alunos) {
+    double soma = 0.0;
+    for (int i=0; i<101; i++)   soma += i*frequencias[i];
+    return soma / a_alunos * 1.0;
+}
+
+int pegaDP(int *frequencias, int a_alunos, double media) {
+    double soma = 0.0;
+    for (int i=0; i<101; i++)   soma += pow(((i*frequencias[i]) - media), 2);
+    return sqrt(soma/a_alunos);
+}
+
+
+
+data_t **pegaCidades(int R_regioes, int C_cidades, int A_alunos, int** notas, int*** freqCid) {
+    data_t **cidades = (data_t**) malloc(R_regioes*sizeof(data_t*));
+    
+    for (int r=0; r<R_regioes; r++) {
+        cidades[r] = (data_t*) malloc(C_cidades*sizeof(data_t));
+        freqCid[r] = (int**) malloc(C_cidades*sizeof(int*));
+
+        for (int c=0; c<C_cidades; c++) {
+            int linha = r*C_cidades + c;
+            freqCid[r][c] = pegaFrequencia(notas[linha], A_alunos);
+
+            cidades[r][c].max = pegaMax(freqCid[r][c]);
+            cidades[r][c].min = pegaMin(freqCid[r][c]);
+            cidades[r][c].mediana = pegaMediana(freqCid[r][c], A_alunos);
+            
+            cidades[r][c].media = pegaMedia(freqCid[r][c], A_alunos);
+            cidades[r][c].desvioPadrao = pegaDP(freqCid[r][c], A_alunos, cidades[r][c].media);
+        }
+    }
+
+    return cidades;
+}
+
+data_t *pegaRegioes(int R_regioes, int C_cidades, int A_alunos, int*** freqCid, int** freqReg) {
+    data_t *regioes = (data_t*) malloc(R_regioes*sizeof(data_t));
+
+    for (int r=0; r<R_regioes; r++) {
+        freqReg[r] = acumulaFrequencia(freqCid[r], A_alunos);
+
+        regioes[r].max = pegaMax(freqReg[r]);
+        regioes[r].min = pegaMin(freqReg[r]);
+        regioes[r].mediana = pegaMediana(freqReg[r], A_alunos*C_cidades);
+        
+        regioes[r].media = pegaMedia(freqReg[r], A_alunos*C_cidades);
+        regioes[r].desvioPadrao = pegaDP(freqReg[r], A_alunos*C_cidades, regioes[r].media);
+    }
+
+    return regioes;
+}
+
+data_t pegaBrasil(int R_regioes, int C_cidades, int A_alunos, int** freqReg) {
+    data_t brasil;
+    int *freqBr =  acumulaFrequencia(freqReg, R_regioes);
+
+    brasil.max = pegaMax(freqBr);
+    brasil.min = pegaMin(freqBr);
+    brasil.mediana = pegaMediana(freqBr, A_alunos*C_cidades*R_regioes);
+    
+    brasil.media = pegaMedia(freqBr, A_alunos*C_cidades*R_regioes);
+    brasil.desvioPadrao = pegaDP(freqBr, A_alunos*C_cidades*R_regioes, brasil.media);
+
+    free(freqBr);
+    return brasil;
+}
+
+int *pegaMelhores(data_t** cidades, data_t* regioes, int C_cidades, int R_regioes) {
+    int *m = (int*) calloc (3, sizeof(int));    // m -- melhor
+    for (int r=0; r<R_regioes; r++) {
+        for (int c=0; c<C_cidades; c++) {
+            if (cidades[r][c].media > cidades[m[0]][m[1]].media){
+                m[0] = r;
+                m[1] = c;
+            }
+        }
+
+        if(regioes[r].media > regioes[m[2]].media)  m[2] = r;
+    }
+
+    return m;
+}
+
 
 int main() {
     int R_regioes, C_cidades, A_alunos, SEED;
@@ -254,15 +202,38 @@ int main() {
 
     int **notas = geraNotas(R_regioes, C_cidades, A_alunos, SEED);
 
-    clock_t t0 = clock();
-    reg_t *res = extrairRegs(R_regioes, C_cidades, A_alunos, notas);
-    clock_t tf = clock();
-    
-    printRegs(res, (tf-t0*1.0)/CLOCKS_PER_SEC, R_regioes, C_cidades, A_alunos, notas);
+
+    double wtime = omp_get_wtime ( );
+
+    int*** freqCidades = (int***) malloc (R_regioes*sizeof(int**));
+    int** freqRegioes = (int**) malloc (R_regioes*sizeof(int*));
+
+    data_t **dataCid = pegaCidades(R_regioes, C_cidades, A_alunos, notas, freqCidades);
+    data_t *dataReg = pegaRegioes(R_regioes, C_cidades, A_alunos, freqCidades, freqRegioes);
+    data_t dataBra = pegaBrasil(R_regioes, C_cidades, A_alunos, freqRegioes);
+    int* melhores = pegaMelhores(dataCid, dataReg, C_cidades, R_regioes);
+
+    wtime = omp_get_wtime ( ) - wtime;
 
 
-    liberaRegs(res, R_regioes +1);
-    liberaNotas(R_regioes, C_cidades, notas);
+    printRegs(dataCid, dataReg, dataBra, melhores, wtime, R_regioes, C_cidades);
+
+
+    // Free used memory
+    for (int r=0; r<R_regioes; r++) {
+        for (int c=0; c<C_cidades; c++) {
+            free(notas[C_cidades*r + c]);
+            free(freqCidades[r][c]);
+        }
+        free(freqRegioes[r]);
+        free(freqCidades[r]);
+        free(dataCid[r]);
+    }
+    free(freqRegioes);
+    free(freqCidades);
+    free(dataReg);
+    free(dataCid);
+    free(notas);
 
     return 0;
 }
