@@ -148,7 +148,7 @@ data_t *pegaRegioes(int R_regioes, int C_cidades, int A_alunos, int*** freqCid, 
     data_t *regioes = (data_t*) malloc(R_regioes*sizeof(data_t));
 
     for (int r=0; r<R_regioes; r++) {
-        freqReg[r] = acumulaFrequencia(freqCid[r], A_alunos);
+        freqReg[r] = acumulaFrequencia(freqCid[r], C_cidades);
 
         regioes[r].max = pegaMax(freqReg[r]);
         regioes[r].min = pegaMin(freqReg[r]);
@@ -216,7 +216,8 @@ int main() {
     wtime = omp_get_wtime ( ) - wtime;
 
 
-    printRegs(dataCid, dataReg, dataBra, melhores, wtime, R_regioes, C_cidades);
+    // printRegs(dataCid, dataReg, dataBra, melhores, wtime, R_regioes, C_cidades);
+    printf("seq time -> %.4f\n", wtime);
 
 
     // Free used memory
