@@ -60,18 +60,21 @@ void printRegs(data_t **cidades, data_t *regioes, data_t brasil, int* melhores, 
 
 
 
-int *pegaFrequencia(int* notas, int A_alunos) {
+int *pegaFrequencia(int* notas, int A_alunos, int flag) {
     int *frequencias = (int*) calloc (101, sizeof(int));
+    #pragma omp parallel for reduction(+:frequencias[:101]) if(flag)
     for (int i=0; i<A_alunos; i++)  frequencias[notas[i]]++;
     return frequencias;
 }
 
-int *acumulaFrequencia(int **frequencias, int n_frequencias) {
+int *acumulaFrequencia(int **frequencias, int n_frequencias, int flag) {
     int *frequenciaAcumulada = (int*) calloc (101, sizeof(int));
 
-    for (int f=0; f<n_frequencias; f++) {
-        for (int i=0; i<101; i++)
+    #pragma omp parallel for reduction(+:frequenciaAcumulada[:101]) if(flag)
+    for (int i=0; i<101; i++) {
+        for (int f=0; f<n_frequencias; f++) {
             frequenciaAcumulada[i] += frequencias[f][i];
+        }
     }
 
     return frequenciaAcumulada;
@@ -127,19 +130,27 @@ data_t **pegaCidades(int R_regioes, int C_cidades, int A_alunos, int** notas, in
     for (int r=0; r<R_regioes; r++) {
         cidades[r] = (data_t*) malloc(C_cidades*sizeof(data_t));
         freqCid[r] = (int**) malloc(C_cidades*sizeof(int*));
-
-        for (int c=0; c<C_cidades; c++) {
-            int linha = r*C_cidades + c;
-            freqCid[r][c] = pegaFrequencia(notas[linha], A_alunos);
-
-            cidades[r][c].max = pegaMax(freqCid[r][c]);
-            cidades[r][c].min = pegaMin(freqCid[r][c]);
-            cidades[r][c].mediana = pegaMediana(freqCid[r][c], A_alunos);
-            
-            cidades[r][c].media = pegaMedia(freqCid[r][c], A_alunos);
-            cidades[r][c].desvioPadrao = pegaDP(freqCid[r][c], A_alunos, cidades[r][c].media);
-        }
     }
+
+    int i;
+    int qtde = R_regioes * C_cidades;
+
+    if (A_alunos > 101*qtde) omp_set_nested(1);
+    #pragma omp parallel for private(i) num_threads(omp_get_max_threads()) schedule(dynamic)
+    for (i=0; i<qtde; i++) {
+        int r = i / C_cidades;
+        int c = i % C_cidades;
+
+        freqCid[r][c] = pegaFrequencia(notas[i], A_alunos, A_alunos > 50*qtde);
+
+        cidades[r][c].max = pegaMax(freqCid[r][c]);
+        cidades[r][c].min = pegaMin(freqCid[r][c]);
+        cidades[r][c].mediana = pegaMediana(freqCid[r][c], A_alunos);
+        
+        cidades[r][c].media = pegaMedia(freqCid[r][c], A_alunos);
+        cidades[r][c].desvioPadrao = pegaDP(freqCid[r][c], A_alunos, cidades[r][c].media);
+    }
+    omp_set_nested(0);
 
     return cidades;
 }
@@ -147,8 +158,11 @@ data_t **pegaCidades(int R_regioes, int C_cidades, int A_alunos, int** notas, in
 data_t *pegaRegioes(int R_regioes, int C_cidades, int A_alunos, int*** freqCid, int** freqReg) {
     data_t *regioes = (data_t*) malloc(R_regioes*sizeof(data_t));
 
-    for (int r=0; r<R_regioes; r++) {
-        freqReg[r] = acumulaFrequencia(freqCid[r], C_cidades);
+    int r;
+    if (C_cidades > 101*R_regioes) omp_set_nested(1);
+    #pragma omp parallel for private(r) num_threads(omp_get_max_threads()) schedule(dynamic)
+    for (r=0; r<R_regioes; r++) {
+        freqReg[r] = acumulaFrequencia(freqCid[r], C_cidades, C_cidades > 101*R_regioes);
 
         regioes[r].max = pegaMax(freqReg[r]);
         regioes[r].min = pegaMin(freqReg[r]);
@@ -157,13 +171,14 @@ data_t *pegaRegioes(int R_regioes, int C_cidades, int A_alunos, int*** freqCid, 
         regioes[r].media = pegaMedia(freqReg[r], A_alunos*C_cidades);
         regioes[r].desvioPadrao = pegaDP(freqReg[r], A_alunos*C_cidades, regioes[r].media);
     }
+    omp_set_nested(0);
 
     return regioes;
 }
 
 data_t pegaBrasil(int R_regioes, int C_cidades, int A_alunos, int** freqReg) {
     data_t brasil;
-    int *freqBr =  acumulaFrequencia(freqReg, R_regioes);
+    int *freqBr =  acumulaFrequencia(freqReg, R_regioes, 1);
 
     brasil.max = pegaMax(freqBr);
     brasil.min = pegaMin(freqBr);
@@ -178,12 +193,17 @@ data_t pegaBrasil(int R_regioes, int C_cidades, int A_alunos, int** freqReg) {
 
 int *pegaMelhores(data_t** cidades, data_t* regioes, int C_cidades, int R_regioes) {
     int *m = (int*) calloc (3, sizeof(int));    // m -- melhor
-    for (int r=0; r<R_regioes; r++) {
-        for (int c=0; c<C_cidades; c++) {
-            if (cidades[r][c].media > cidades[m[0]][m[1]].media){
-                m[0] = r;
-                m[1] = c;
-            }
+    
+    int i;
+    int qtde = R_regioes * C_cidades;
+    
+    #pragma omp parallel for private(i) num_threads(omp_get_max_threads()) schedule(dynamic) shared(m)
+    for (i=0; i<qtde; i++) {
+        int r = i / C_cidades;
+        int c = i % C_cidades;
+        if (cidades[r][c].media > cidades[m[0]][m[1]].media){
+            m[0] = r;
+            m[1] = c;
         }
 
         if(regioes[r].media > regioes[m[2]].media)  m[2] = r;
@@ -191,6 +211,7 @@ int *pegaMelhores(data_t** cidades, data_t* regioes, int C_cidades, int R_regioe
 
     return m;
 }
+
 
 
 int main() {
